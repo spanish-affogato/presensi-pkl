@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Absensi Kamera</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f0f2f5;
+    margin: 0;
+    padding: 24px 12px;
+    display: flex;
+    justify-content: center;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 420px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    margin: 0 0 24px;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    font-size: 14px;
+    margin: 16px 0 6px;
+  }
+  input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .presensi-group {
+    display: flex;
+    gap: 10px;
+  }
+  .presensi-option {
+    flex: 1;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .presensi-option.active {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #2563eb;
+  }
+  video, canvas, img.preview {
+    width: 100%;
+    border-radius: 8px;
+    background: #000;
+    display: block;
+    max-height: 320px;
+    object-fit: cover;
+  }
+  canvas { display: none; }
+  button {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 16px;
+  }
+  button:disabled {
+    background: #93b4ec;
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: #6b7280;
+  }
+  #status {
+    text-align: center;
+    font-size: 13px;
+    margin-top: 12px;
+    min-height: 18px;
+  }
+  #status.error { color: #dc2626; }
+  #status.success { color: #16a34a; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Absensi Kamera</h1>
+
+  <label for="nama">Nama Lengkap</label>
+  <input type="text" id="nama" placeholder="Masukkan nama">
+
+  <label>Jenis Presensi</label>
+  <div class="presensi-group">
+    <div class="presensi-option active" data-value="Presensi Kehadiran">
+      <input type="radio" name="jenis" checked style="pointer-events:none;"> Presensi Kehadiran
+    </div>
+    <div class="presensi-option" data-value="Presensi Kepulangan">
+      <input type="radio" name="jenis" style="pointer-events:none;"> Presensi Kepulangan
+    </div>
+  </div>
+
+  <label>Ambil Foto</label>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <img id="preview" class="preview" style="display:none;">
+
+  <div class="btn-row" id="captureRow">
+    <button id="captureBtn">Ambil Foto</button>
+  </div>
+  <div class="btn-row" id="retakeRow" style="display:none;">
+    <button id="retakeBtn" class="secondary">Ambil Ulang</button>
+    <button id="submitBtn">Kirim Absensi</button>
+  </div>
+
+  <div id="status"></div>
+</div>
+
+<script>
+  // GANTI dengan URL Web App Apps Script kamu (yang sudah di-deploy ulang setelah
+  // menambahkan fungsi doPost di Code.gs)
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw7bMoudvTan6GhZFbBM-xLl-PODqv3izVvpC-VYGFxD_eB1ZfGytz4Ja7cEogLqwf5RA/exec';
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const preview = document.getElementById('preview');
+  const captureBtn = document.getElementById('captureBtn');
+  const retakeBtn = document.getElementById('retakeBtn');
+  const submitBtn = document.getElementById('submitBtn');
+  const captureRow = document.getElementById('captureRow');
+  const retakeRow = document.getElementById('retakeRow');
+  const statusEl = document.getElementById('status');
+  const namaInput = document.getElementById('nama');
+  const presensiOptions = document.querySelectorAll('.presensi-option');
+
+  let jenisPresensi = 'Presensi Kehadiran';
+  let base64Image = null;
+  let stream = null;
+
+  presensiOptions.forEach(opt => {
+    opt.addEventListener('click', () => {
+      presensiOptions.forEach(o => o.classList.remove('active'));
+      opt.classList.add('active');
+      opt.querySelector('input').checked = true;
+      jenisPresensi = opt.dataset.value;
+    });
+  });
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false
+      });
+      video.srcObject = stream;
+      setStatus('', '');
+    } catch (err) {
+      setStatus('Tidak bisa akses kamera: ' + err.message, 'error');
+    }
+  }
+
+  function setStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = type || '';
+  }
+
+  captureBtn.addEventListener('click', () => {
+    const ctx = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    base64Image = canvas.toDataURL('image/jpeg', 0.85);
+
+    preview.src = base64Image;
+    preview.style.display = 'block';
+    video.style.display = 'none';
+
+    captureRow.style.display = 'none';
+    retakeRow.style.display = 'flex';
+  });
+
+  retakeBtn.addEventListener('click', () => {
+    preview.style.display = 'none';
+    video.style.display = 'block';
+    captureRow.style.display = 'flex';
+    retakeRow.style.display = 'none';
+    base64Image = null;
+    setStatus('', '');
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const nama = namaInput.value.trim();
+    if (!nama) {
+      setStatus('Nama wajib diisi.', 'error');
+      return;
+    }
+    if (!base64Image) {
+      setStatus('Silakan ambil foto terlebih dahulu.', 'error');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    retakeBtn.disabled = true;
+    setStatus('Mengirim absensi...', '');
+
+    try {
+      const res = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // hindari CORS preflight
+        body: JSON.stringify({ nama, jenisPresensi, base64Image })
+      });
+      const result = await res.json();
+
+      if (result.success) {
+        setStatus(result.message, 'success');
+        namaInput.value = '';
+        base64Image = null;
+        preview.style.display = 'none';
+        video.style.display = 'block';
+        captureRow.style.display = 'flex';
+        retakeRow.style.display = 'none';
+      } else {
+        setStatus(result.message, 'error');
+      }
+    } catch (err) {
+      setStatus('Gagal mengirim: ' + err.message, 'error');
+    } finally {
+      submitBtn.disabled = false;
+      retakeBtn.disabled = false;
+    }
+  });
+
+  startCamera();
+</script>
+</body>
+</html>
