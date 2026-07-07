@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Log Presensi Harian</title>
+<title>Absensi Kamera</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -98,11 +98,135 @@
   #status.success { color: #16a34a; }
   .btn-row { display: flex; gap: 8px; }
   .btn-row button { margin-top: 0; }
+
+  /* Modal notifikasi sukses */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    padding: 20px;
+  }
+  .modal-overlay.show {
+    display: flex;
+  }
+  .modal-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 32px 28px;
+    max-width: 340px;
+    width: 100%;
+    text-align: center;
+    animation: popIn 0.25s ease-out;
+  }
+  @keyframes popIn {
+    from { transform: scale(0.85); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .modal-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #dcfce7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .modal-icon svg {
+    width: 32px;
+    height: 32px;
+  }
+  .modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #16a34a;
+    margin: 0 0 6px;
+  }
+  .modal-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 2px;
+  }
+  .modal-detail {
+    font-size: 13px;
+    color: #6b7280;
+    margin: 0 0 20px;
+  }
+  .modal-box button {
+    margin-top: 0;
+  }
+
+  /* Modal pop-up notifikasi */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    padding: 16px;
+  }
+  .modal-overlay.show {
+    display: flex;
+    animation: fadeIn 0.2s ease;
+  }
+  .modal-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 32px 24px;
+    max-width: 340px;
+    width: 100%;
+    text-align: center;
+    animation: popIn 0.25s ease;
+  }
+  .modal-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    font-size: 34px;
+    color: #fff;
+  }
+  .modal-icon.success { background: #16a34a; }
+  .modal-icon.error { background: #dc2626; }
+  .modal-title {
+    font-size: 19px;
+    font-weight: 700;
+    margin: 0 0 8px;
+  }
+  .modal-title.success { color: #16a34a; }
+  .modal-title.error { color: #dc2626; }
+  .modal-message {
+    font-size: 14px;
+    color: #444;
+    margin: 0 0 22px;
+    line-height: 1.5;
+  }
+  .modal-box button {
+    margin-top: 0;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes popIn {
+    from { transform: scale(0.85); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Log Presensi Harian</h1>
+  <h1>Absensi Kamera</h1>
 
   <label for="nama">Nama Lengkap</label>
   <input type="text" id="nama" placeholder="Masukkan nama">
@@ -133,6 +257,30 @@
   <div id="status"></div>
 </div>
 
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+    <p class="modal-title">Absensi Berhasil!</p>
+    <p class="modal-name" id="modalNama"></p>
+    <p class="modal-detail" id="modalDetail"></p>
+    <button id="modalCloseBtn">Tutup</button>
+  </div>
+</div>
+
+<!-- Modal pop-up notifikasi -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-icon" id="modalIcon">✓</div>
+    <p class="modal-title" id="modalTitle">Berhasil</p>
+    <p class="modal-message" id="modalMessage"></p>
+    <button id="modalCloseBtn">Tutup</button>
+  </div>
+</div>
+
 <script>
   // GANTI dengan URL Web App Apps Script kamu (yang sudah di-deploy ulang setelah
   // menambahkan fungsi doPost di Code.gs)
@@ -149,6 +297,10 @@
   const statusEl = document.getElementById('status');
   const namaInput = document.getElementById('nama');
   const presensiOptions = document.querySelectorAll('.presensi-option');
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalNama = document.getElementById('modalNama');
+  const modalDetail = document.getElementById('modalDetail');
+  const modalCloseBtn = document.getElementById('modalCloseBtn');
 
   let jenisPresensi = 'Presensi Kehadiran';
   let base64Image = null;
@@ -180,6 +332,20 @@
     statusEl.textContent = msg;
     statusEl.className = type || '';
   }
+
+  function showSuccessModal(nama, jenis) {
+    const now = new Date();
+    const jam = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const tanggal = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    modalNama.textContent = nama;
+    modalDetail.textContent = jenis + ' • ' + tanggal + ', ' + jam;
+    modalOverlay.classList.add('show');
+  }
+
+  modalCloseBtn.addEventListener('click', () => {
+    modalOverlay.classList.remove('show');
+  });
 
   captureBtn.addEventListener('click', () => {
     const ctx = canvas.getContext('2d');
@@ -229,7 +395,8 @@
       const result = await res.json();
 
       if (result.success) {
-        setStatus(result.message, 'success');
+        setStatus('', '');
+        showSuccessModal(nama, jenisPresensi);
         namaInput.value = '';
         base64Image = null;
         preview.style.display = 'none';
