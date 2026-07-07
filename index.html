@@ -68,6 +68,9 @@
     max-height: 320px;
     object-fit: cover;
   }
+  video {
+    transform: scaleX(-1); /* mirror seperti cermin */
+  }
   canvas { display: none; }
   button {
     width: 100%;
@@ -351,6 +354,9 @@
     const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    // Mirror horizontal supaya foto sama seperti yang dilihat di preview
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     base64Image = canvas.toDataURL('image/jpeg', 0.85);
 
