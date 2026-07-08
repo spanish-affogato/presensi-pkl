@@ -281,12 +281,29 @@
   }
 
   function loadFaceModel() {
+    // Fallback: kalau model gagal/lambat dimuat dalam 8 detik,
+    // tetap izinkan ambil foto tanpa deteksi wajah (fail-safe).
+    var fallbackTimer = setTimeout(() => {
+      if (!modelSiap) {
+        faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
+        faceStatusEl.style.color = '#6b7280';
+        wajahTerdeteksi = true;
+        captureBtn.disabled = false;
+      }
+    }, 8000);
+
     faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL).then(() => {
+      clearTimeout(fallbackTimer);
       modelSiap = true;
       faceStatusEl.textContent = 'Mencari wajah...';
       deteksiWajahLoop();
     }).catch(err => {
-      faceStatusEl.textContent = 'Gagal memuat model wajah: ' + err.message;
+      clearTimeout(fallbackTimer);
+      faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
+      faceStatusEl.style.color = '#6b7280';
+      wajahTerdeteksi = true;
+      captureBtn.disabled = false;
+      console.error('Gagal memuat model face-api:', err);
     });
   }
 
