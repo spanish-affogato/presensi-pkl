@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Log Presensi Harian</title>
-<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -281,8 +281,17 @@
   }
 
   function loadFaceModel() {
-    // Fallback: kalau model gagal/lambat dimuat dalam 8 detik,
-    // tetap izinkan ambil foto tanpa deteksi wajah (fail-safe).
+    // Kalau library faceapi gagal dimuat dari CDN (diblokir jaringan, dsb),
+    // langsung skip deteksi wajah dan izinkan ambil foto seperti biasa.
+    if (typeof faceapi === 'undefined') {
+      faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
+      faceStatusEl.style.color = '#6b7280';
+      wajahTerdeteksi = true;
+      captureBtn.disabled = false;
+      console.warn('face-api.js gagal dimuat dari CDN (kemungkinan diblokir jaringan).');
+      return;
+    }
+
     var fallbackTimer = setTimeout(() => {
       if (!modelSiap) {
         faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
