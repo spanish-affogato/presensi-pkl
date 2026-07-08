@@ -256,7 +256,7 @@
   let modelSiap = false;
   let lokasi = null; // { latitude, longitude, akurasi }
 
-  const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+  const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
 
   presensiOptions.forEach(opt => {
     opt.addEventListener('click', () => {
@@ -339,8 +339,16 @@
       locationStatusEl.textContent = 'Perangkat tidak mendukung deteksi lokasi';
       return;
     }
+
+    var lokasiTimeout = setTimeout(() => {
+      if (!lokasi) {
+        locationStatusEl.textContent = 'Lokasi belum merespons. Cek izin lokasi di ikon 🔒/📍 pada address bar, lalu Allow.';
+      }
+    }, 15000);
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        clearTimeout(lokasiTimeout);
         lokasi = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
@@ -351,6 +359,7 @@
           ' (akurasi ±' + lokasi.akurasi + 'm)';
       },
       (err) => {
+        clearTimeout(lokasiTimeout);
         lokasi = null;
         locationStatusEl.textContent = 'Lokasi tidak diizinkan/tidak terdeteksi: ' + err.message;
       },
