@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Log Presensi Harian</title>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -69,9 +70,22 @@
     object-fit: cover;
   }
   video {
-    transform: scaleX(-1); /* mirror seperti cermin */
+    transform: scaleX(-1);
   }
   canvas { display: none; }
+  #faceStatus {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 8px;
+    color: #dc2626;
+  }
+  #locationStatus {
+    text-align: center;
+    font-size: 12px;
+    margin-top: 4px;
+    color: #6b7280;
+  }
   button {
     width: 100%;
     padding: 13px;
@@ -102,7 +116,6 @@
   .btn-row { display: flex; gap: 8px; }
   .btn-row button { margin-top: 0; }
 
-  /* Modal notifikasi sukses */
   .modal-overlay {
     display: none;
     position: fixed;
@@ -163,68 +176,6 @@
   .modal-box button {
     margin-top: 0;
   }
-
-  /* Modal pop-up notifikasi */
-  .modal-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.55);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 999;
-    padding: 16px;
-  }
-  .modal-overlay.show {
-    display: flex;
-    animation: fadeIn 0.2s ease;
-  }
-  .modal-box {
-    background: #fff;
-    border-radius: 16px;
-    padding: 32px 24px;
-    max-width: 340px;
-    width: 100%;
-    text-align: center;
-    animation: popIn 0.25s ease;
-  }
-  .modal-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 16px;
-    font-size: 34px;
-    color: #fff;
-  }
-  .modal-icon.success { background: #16a34a; }
-  .modal-icon.error { background: #dc2626; }
-  .modal-title {
-    font-size: 19px;
-    font-weight: 700;
-    margin: 0 0 8px;
-  }
-  .modal-title.success { color: #16a34a; }
-  .modal-title.error { color: #dc2626; }
-  .modal-message {
-    font-size: 14px;
-    color: #444;
-    margin: 0 0 22px;
-    line-height: 1.5;
-  }
-  .modal-box button {
-    margin-top: 0;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes popIn {
-    from { transform: scale(0.85); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-  }
 </style>
 </head>
 <body>
@@ -246,11 +197,13 @@
 
   <label>Ambil Foto</label>
   <video id="video" autoplay playsinline></video>
+  <div id="faceStatus">Memuat model deteksi wajah...</div>
+  <div id="locationStatus">Mengambil lokasi...</div>
   <canvas id="canvas"></canvas>
   <img id="preview" class="preview" style="display:none;">
 
   <div class="btn-row" id="captureRow">
-    <button id="captureBtn">Ambil Foto</button>
+    <button id="captureBtn" disabled>Ambil Foto</button>
   </div>
   <div class="btn-row" id="retakeRow" style="display:none;">
     <button id="retakeBtn" class="secondary">Ambil Ulang</button>
@@ -274,19 +227,8 @@
   </div>
 </div>
 
-<!-- Modal pop-up notifikasi -->
-<div class="modal-overlay" id="modalOverlay">
-  <div class="modal-box">
-    <div class="modal-icon" id="modalIcon">✓</div>
-    <p class="modal-title" id="modalTitle">Berhasil</p>
-    <p class="modal-message" id="modalMessage"></p>
-    <button id="modalCloseBtn">Tutup</button>
-  </div>
-</div>
-
 <script>
-  // GANTI dengan URL Web App Apps Script kamu (yang sudah di-deploy ulang setelah
-  // menambahkan fungsi doPost di Code.gs)
+  // GANTI dengan URL Web App Apps Script kamu
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw7bMoudvTan6GhZFbBM-xLl-PODqv3izVvpC-VYGFxD_eB1ZfGytz4Ja7cEogLqwf5RA/exec';
 
   const video = document.getElementById('video');
@@ -304,10 +246,17 @@
   const modalNama = document.getElementById('modalNama');
   const modalDetail = document.getElementById('modalDetail');
   const modalCloseBtn = document.getElementById('modalCloseBtn');
+  const faceStatusEl = document.getElementById('faceStatus');
+  const locationStatusEl = document.getElementById('locationStatus');
 
   let jenisPresensi = 'Presensi Kehadiran';
   let base64Image = null;
   let stream = null;
+  let wajahTerdeteksi = false;
+  let modelSiap = false;
+  let lokasi = null; // { latitude, longitude, akurasi }
+
+  const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
 
   presensiOptions.forEach(opt => {
     opt.addEventListener('click', () => {
@@ -329,6 +278,58 @@
     } catch (err) {
       setStatus('Tidak bisa akses kamera: ' + err.message, 'error');
     }
+  }
+
+  function loadFaceModel() {
+    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL).then(() => {
+      modelSiap = true;
+      faceStatusEl.textContent = 'Mencari wajah...';
+      deteksiWajahLoop();
+    }).catch(err => {
+      faceStatusEl.textContent = 'Gagal memuat model wajah: ' + err.message;
+    });
+  }
+
+  function deteksiWajahLoop() {
+    setInterval(async () => {
+      if (!modelSiap || video.style.display === 'none') return;
+      const hasil = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions());
+      if (hasil) {
+        wajahTerdeteksi = true;
+        faceStatusEl.textContent = 'Wajah terdeteksi';
+        faceStatusEl.style.color = '#16a34a';
+        captureBtn.disabled = false;
+      } else {
+        wajahTerdeteksi = false;
+        faceStatusEl.textContent = 'Posisikan wajah di depan kamera';
+        faceStatusEl.style.color = '#dc2626';
+        captureBtn.disabled = true;
+      }
+    }, 500);
+  }
+
+  function ambilLokasi() {
+    if (!navigator.geolocation) {
+      locationStatusEl.textContent = 'Perangkat tidak mendukung deteksi lokasi';
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        lokasi = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          akurasi: Math.round(pos.coords.accuracy)
+        };
+        locationStatusEl.textContent =
+          'Lokasi: ' + lokasi.latitude.toFixed(5) + ', ' + lokasi.longitude.toFixed(5) +
+          ' (akurasi ±' + lokasi.akurasi + 'm)';
+      },
+      (err) => {
+        lokasi = null;
+        locationStatusEl.textContent = 'Lokasi tidak diizinkan/tidak terdeteksi: ' + err.message;
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   }
 
   function setStatus(msg, type) {
@@ -354,7 +355,6 @@
     const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    // Mirror horizontal supaya foto sama seperti yang dilihat di preview
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -387,6 +387,10 @@
       setStatus('Silakan ambil foto terlebih dahulu.', 'error');
       return;
     }
+    if (!wajahTerdeteksi) {
+      setStatus('Wajah tidak terdeteksi saat foto diambil, silakan ambil ulang.', 'error');
+      return;
+    }
 
     submitBtn.disabled = true;
     retakeBtn.disabled = true;
@@ -395,8 +399,15 @@
     try {
       const res = await fetch(SCRIPT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // hindari CORS preflight
-        body: JSON.stringify({ nama, jenisPresensi, base64Image })
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          nama,
+          jenisPresensi,
+          base64Image,
+          latitude: lokasi ? lokasi.latitude : null,
+          longitude: lokasi ? lokasi.longitude : null,
+          akurasiLokasi: lokasi ? lokasi.akurasi : null
+        })
       });
       const result = await res.json();
 
@@ -421,6 +432,8 @@
   });
 
   startCamera();
+  loadFaceModel();
+  ambilLokasi();
 </script>
 </body>
 </html>
