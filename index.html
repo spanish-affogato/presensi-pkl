@@ -34,12 +34,18 @@
     font-size: 14px;
     margin: 16px 0 6px;
   }
-  input[type="text"] {
+  input[type="text"], select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #d0d5dd;
     border-radius: 8px;
     font-size: 14px;
+    background: #fff;
+    font-family: inherit;
+  }
+  select:disabled {
+    background: #f3f4f6;
+    color: #9ca3af;
   }
   .presensi-group {
     display: flex;
@@ -81,6 +87,12 @@
     color: #dc2626;
   }
   #locationStatus {
+    text-align: center;
+    font-size: 12px;
+    margin-top: 4px;
+    color: #6b7280;
+  }
+  #namaStatus {
     text-align: center;
     font-size: 12px;
     margin-top: 4px;
@@ -183,7 +195,10 @@
   <h1>Log Presensi Harian</h1>
 
   <label for="nama">Nama Lengkap</label>
-  <input type="text" id="nama" placeholder="Masukkan nama">
+  <select id="nama" disabled>
+    <option value="">Memuat daftar nama...</option>
+  </select>
+  <div id="namaStatus"></div>
 
   <label>Jenis Presensi</label>
   <div class="presensi-group">
@@ -241,6 +256,7 @@
   const retakeRow = document.getElementById('retakeRow');
   const statusEl = document.getElementById('status');
   const namaInput = document.getElementById('nama');
+  const namaStatusEl = document.getElementById('namaStatus');
   const presensiOptions = document.querySelectorAll('.presensi-option');
   const modalOverlay = document.getElementById('modalOverlay');
   const modalNama = document.getElementById('modalNama');
@@ -266,6 +282,41 @@
       jenisPresensi = opt.dataset.value;
     });
   });
+
+  async function loadNamaList() {
+    try {
+      const res = await fetch(SCRIPT_URL + '?action=getNama');
+      const result = await res.json();
+
+      namaInput.innerHTML = '';
+
+      if (result.success && result.data && result.data.length > 0) {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Pilih nama...';
+        namaInput.appendChild(placeholder);
+
+        result.data.forEach(nama => {
+          const opt = document.createElement('option');
+          opt.value = nama;
+          opt.textContent = nama;
+          namaInput.appendChild(opt);
+        });
+
+        namaInput.disabled = false;
+        namaStatusEl.textContent = '';
+      } else {
+        namaStatusEl.textContent = 'Daftar nama kosong. Hubungi admin.';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Daftar nama kosong';
+        namaInput.appendChild(opt);
+      }
+    } catch (err) {
+      namaInput.innerHTML = '<option value="">Gagal memuat daftar nama</option>';
+      namaStatusEl.textContent = 'Gagal memuat daftar nama: ' + err.message;
+    }
+  }
 
   async function startCamera() {
     try {
@@ -415,7 +466,7 @@
   submitBtn.addEventListener('click', async () => {
     const nama = namaInput.value.trim();
     if (!nama) {
-      setStatus('Nama wajib diisi.', 'error');
+      setStatus('Nama wajib dipilih.', 'error');
       return;
     }
     if (!base64Image) {
@@ -469,6 +520,7 @@
   startCamera();
   loadFaceModel();
   ambilLokasi();
+  loadNamaList();
 </script>
 </body>
 </html>
