@@ -246,6 +246,9 @@
   // GANTI dengan URL Web App Apps Script kamu
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyxq_wSDzk1coJgy69Hj4zmScfixd4O81fx8VH4gvyuTybHMvjtzpmBz5mzXWGQ-wyxTg/exec';
 
+  // GANTI dengan nama perusahaan kamu — akan muncul di baris pertama watermark foto
+  const NAMA_PERUSAHAAN = 'PT Kaliman Karya Jaya';
+
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   const preview = document.getElementById('preview');
@@ -283,6 +286,13 @@
     });
   });
 
+  function updateCaptureButtonState() {
+    const namaTerpilih = namaInput.value.trim() !== '';
+    captureBtn.disabled = !(wajahTerdeteksi && namaTerpilih);
+  }
+
+  namaInput.addEventListener('change', updateCaptureButtonState);
+
   async function loadNamaList() {
     try {
       const res = await fetch(SCRIPT_URL + '?action=getNama');
@@ -316,6 +326,7 @@
       namaInput.innerHTML = '<option value="">Gagal memuat daftar nama</option>';
       namaStatusEl.textContent = 'Gagal memuat daftar nama: ' + err.message;
     }
+    updateCaptureButtonState();
   }
 
   async function startCamera() {
@@ -338,7 +349,7 @@
       faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
       faceStatusEl.style.color = '#6b7280';
       wajahTerdeteksi = true;
-      captureBtn.disabled = false;
+      updateCaptureButtonState();
       console.warn('face-api.js gagal dimuat dari CDN (kemungkinan diblokir jaringan).');
       return;
     }
@@ -348,7 +359,7 @@
         faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
         faceStatusEl.style.color = '#6b7280';
         wajahTerdeteksi = true;
-        captureBtn.disabled = false;
+        updateCaptureButtonState();
       }
     }, 8000);
 
@@ -362,7 +373,7 @@
       faceStatusEl.textContent = 'Deteksi wajah tidak tersedia, foto tetap bisa diambil';
       faceStatusEl.style.color = '#6b7280';
       wajahTerdeteksi = true;
-      captureBtn.disabled = false;
+      updateCaptureButtonState();
       console.error('Gagal memuat model face-api:', err);
     });
   }
@@ -375,13 +386,12 @@
         wajahTerdeteksi = true;
         faceStatusEl.textContent = 'Wajah terdeteksi';
         faceStatusEl.style.color = '#16a34a';
-        captureBtn.disabled = false;
       } else {
         wajahTerdeteksi = false;
         faceStatusEl.textContent = 'Posisikan wajah di depan kamera';
         faceStatusEl.style.color = '#dc2626';
-        captureBtn.disabled = true;
       }
+      updateCaptureButtonState();
     }, 500);
   }
 
@@ -398,16 +408,27 @@
     }, 15000);
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         clearTimeout(lokasiTimeout);
         lokasi = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
-          akurasi: Math.round(pos.coords.accuracy)
+          akurasi: Math.round(pos.coords.accuracy),
+          alamat: null
         };
         locationStatusEl.textContent =
           'Lokasi: ' + lokasi.latitude.toFixed(5) + ', ' + lokasi.longitude.toFixed(5) +
-          ' (akurasi ±' + lokasi.akurasi + 'm)';
+          ' (akurasi ±' + lokasi.akurasi + 'm) — mencari nama jalan...';
+
+        const alamat = await ambilAlamat(lokasi.latitude, lokasi.longitude);
+        if (alamat) {
+          lokasi.alamat = alamat;
+          locationStatusEl.textContent = 'Lokasi: ' + alamat + ' (akurasi ±' + lokasi.akurasi + 'm)';
+        } else {
+          locationStatusEl.textContent =
+            'Lokasi: ' + lokasi.latitude.toFixed(5) + ', ' + lokasi.longitude.toFixed(5) +
+            ' (akurasi ±' + lokasi.akurasi + 'm)';
+        }
       },
       (err) => {
         clearTimeout(lokasiTimeout);
@@ -416,6 +437,34 @@
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  }
+
+  // Reverse geocoding: ubah koordinat jadi nama jalan/alamat pakai OpenStreetMap Nominatim.
+  // Kalau gagal (offline, API bermasalah, dsb), kembalikan null dan watermark akan
+  // otomatis fallback ke koordinat saja.
+  async function ambilAlamat(lat, lon) {
+    try {
+      const res = await fetch(
+        'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' + lat + '&lon=' + lon + '&zoom=18&addressdetails=1',
+        { headers: { 'Accept-Language': 'id' } }
+      );
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (!data || !data.address) return data && data.display_name ? data.display_name : null;
+
+      const a = data.address;
+      const jalan = a.road || a.pedestrian || a.footway || '';
+      const wilayah = [
+        a.village || a.suburb || a.city_district || '',
+        a.city || a.town || a.county || '',
+        a.state || ''
+      ].filter(Boolean);
+      const bagian = [jalan, ...wilayah].filter(Boolean);
+      return bagian.join(', ') || data.display_name || null;
+    } catch (err) {
+      console.warn('Gagal mengambil nama jalan (reverse geocoding):', err);
+      return null;
+    }
   }
 
   function setStatus(msg, type) {
@@ -437,13 +486,95 @@
     modalOverlay.classList.remove('show');
   });
 
+  // Pecah teks jadi beberapa baris supaya muat di lebar canvas, maksimal maxLines
+  // (baris terakhir dipotong dengan "..." kalau teks masih kepanjangan).
+  function wrapText(ctx, text, maxWidth, maxLines) {
+    const words = text.split(' ');
+    const lines = [];
+    let current = '';
+
+    words.forEach(word => {
+      const test = current ? current + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    });
+    if (current) lines.push(current);
+
+    if (lines.length > maxLines) {
+      const dipotong = lines.slice(0, maxLines);
+      let terakhir = dipotong[maxLines - 1];
+      while (ctx.measureText(terakhir + '...').width > maxWidth && terakhir.length > 0) {
+        terakhir = terakhir.slice(0, -1);
+      }
+      dipotong[maxLines - 1] = terakhir + '...';
+      return dipotong;
+    }
+    return lines;
+  }
+
+  // --- Efek watermark: nama, jenis presensi, waktu, lokasi (+ nama jalan) ---
+  function drawWatermark(ctx, canvasW, canvasH, nama, jenis) {
+    const now = new Date();
+    const jam = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const tanggal = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const fontSize = Math.max(13, Math.round(canvasW * 0.032));
+    const lineHeight = Math.round(fontSize * 1.4);
+    const padding = Math.round(fontSize * 0.7);
+    const maxTextWidth = canvasW - padding * 2;
+
+    ctx.font = fontSize + 'px -apple-system, Arial, sans-serif';
+
+    let lokasiLines;
+    if (lokasi && lokasi.alamat) {
+      lokasiLines = wrapText(ctx, 'Lokasi: ' + lokasi.alamat, maxTextWidth, 2);
+    } else if (lokasi) {
+      lokasiLines = [
+        'Lokasi: ' + lokasi.latitude.toFixed(5) + ', ' + lokasi.longitude.toFixed(5) +
+        ' (±' + lokasi.akurasi + 'm)'
+      ];
+    } else {
+      lokasiLines = ['Lokasi: tidak tersedia'];
+    }
+
+    const lines = [NAMA_PERUSAHAAN, nama, jenis + ' • ' + tanggal + ', ' + jam].concat(lokasiLines);
+    const barHeight = lines.length * lineHeight + padding * 2;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, canvasH - barHeight, canvasW, barHeight);
+
+    ctx.textBaseline = 'top';
+    lines.forEach((line, i) => {
+      ctx.font = (i === 0 || i === 1 ? 'bold ' : '') + fontSize + 'px -apple-system, Arial, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(line, padding, canvasH - barHeight + padding + i * lineHeight);
+    });
+  }
+
   captureBtn.addEventListener('click', () => {
+    const nama = namaInput.value.trim();
+    if (!nama) {
+      setStatus('Pilih nama terlebih dahulu sebelum ambil foto.', 'error');
+      return;
+    }
+
     const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+
+    // Gambar foto (dicerminkan supaya sesuai tampilan preview kamera)
+    ctx.save();
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore(); // transform normal kembali sebelum menggambar watermark
+
+    drawWatermark(ctx, canvas.width, canvas.height, nama, jenisPresensi);
+
     base64Image = canvas.toDataURL('image/jpeg', 0.85);
 
     preview.src = base64Image;
@@ -506,6 +637,7 @@
         video.style.display = 'block';
         captureRow.style.display = 'flex';
         retakeRow.style.display = 'none';
+        updateCaptureButtonState();
       } else {
         setStatus(result.message, 'error');
       }
